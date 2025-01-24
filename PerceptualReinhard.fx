@@ -1,6 +1,6 @@
 #include "ReShade.fxh"
 
-// By Liam very basic 
+// Very basic 
 
 
 uniform float MidGray <
