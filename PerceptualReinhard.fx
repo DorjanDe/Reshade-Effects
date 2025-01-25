@@ -1,20 +1,20 @@
 #include "ReShade.fxh"
 
-// Very basic 
-
+// By Liam very basic 
+// Modified to support OKLab
 
 uniform float MidGray <
     ui_type = "slider";
     ui_min = 0.1;
     ui_max = 0.5;
     ui_step = 0.01;
-> = 0.18;
+> = 0.2;
 uniform float Contrast <
     ui_type = "slider";
     ui_min = 0.5;
     ui_max = 2.0;
     ui_step = 0.01;
-> = 1.0;
+> = 0.85;
 uniform float Saturation <
     ui_type = "slider";
     ui_min = 0.0;
@@ -30,9 +30,16 @@ uniform float ShoulderStrength <
 uniform float WhitePoint <
     ui_type = "slider";
     ui_min = 0.5;
-    ui_max = 4.0;
+    ui_max = 2.0;
     ui_step = 0.01;
 > = 1.0;
+uniform float HDR <
+    ui_label = "Lower value is closer to HDR";
+    ui_type = "slider";
+    ui_min = 3.00;
+    ui_max = 10.0;
+    ui_step = 0.01;
+> = 8.0;
 float3 SRGBToLinear(float3 color)
 {
     return color < 0.04045 ? color / 12.92 : pow((color + 0.055)/1.055, 2.4);
@@ -43,91 +50,82 @@ float3 LinearToSRGB(float3 color)
     return color < 0.0031308 ? 12.92 * color : 1.055 * pow(color, 1.0/2.4) - 0.055;
 }
 
-float3 RGBToXYZ(float3 c)
+float3 RGBToOKLab(float3 rgb)
 {
-    const float3x3 m = float3x3(
-        0.4124564, 0.3575761, 0.1804375,
-        0.2126729, 0.7151522, 0.0721750,
-        0.0193339, 0.1191920, 0.9503041
-    );
-    return mul(m, c);
-}
-
-float3 XYZToLAB(float3 xyz)
-{
-    xyz /= float3(0.95047, 1.0, 1.08883); // D65 normalization
-    float3 f = pow(xyz, 1.0/3.0);
-    f = xyz > 0.008856 ? f : 7.787 * xyz + 16.0/116.0;
-    return float3(
-        (116.0 * f.y) - 16.0,
-        500.0 * (f.x - f.y),
-        200.0 * (f.y - f.z)
-    );
-}
-
-float3 LABToXYZ(float3 lab)
-{
-    float fy = (lab.x + 16.0)/116.0;
-    float fx = lab.y/500.0 + fy;
-    float fz = fy - lab.z/200.0;
     
-    float3 f = float3(fx, fy, fz);
-    float3 xyz = f > 0.2068966 ? pow(f, 3.0) : (f - 16.0/116.0)/7.787;
-    return xyz * float3(0.95047, 1.0, 1.08883);
+    float3 lms;
+    lms.x = 0.4122214708 * rgb.x + 0.5363325363 * rgb.y + 0.0514459929 * rgb.z;
+    lms.y = 0.2119034982 * rgb.x + 0.6806995451 * rgb.y + 0.1073969566 * rgb.z;
+    lms.z = 0.0883024619 * rgb.x + 0.2817188376 * rgb.y + 0.6299787005 * rgb.z;
+    
+    
+    lms = pow(lms, 1.0/3.0);
+    
+    
+    float3 lab;
+    lab.x = 0.2104542553 * lms.x + 0.7936177850 * lms.y - 0.0040720468 * lms.z;
+    lab.y = 1.9779984951 * lms.x - 2.4285922050 * lms.y + 0.4505937099 * lms.z;
+    lab.z = 0.0259040371 * lms.x + 0.7827717662 * lms.y - 0.8086757660 * lms.z;
+    
+    return lab;
 }
 
-float3 XYZToRGB(float3 xyz)
+float3 OKLabToRGB(float3 lab)
 {
-    const float3x3 m = float3x3(
-         3.2404542, -1.5371385, -0.4985314,
-        -0.9692660,  1.8760108,  0.0415560,
-         0.0556434, -0.2040259,  1.0572252
-    );
-    return mul(m, xyz);
+    
+    float3 lms_;
+    lms_.x = lab.x + 0.3963377774 * lab.y + 0.2158037573 * lab.z;
+    lms_.y = lab.x - 0.1055613458 * lab.y - 0.0638541728 * lab.z;
+    lms_.z = lab.x - 0.0894841775 * lab.y - 1.2914855480 * lab.z;
+    
+    
+    float3 lms = lms_ * lms_ * lms_;
+    
+    
+    float3 rgb;
+    rgb.x =  4.0767416621 * lms.x - 3.3077115913 * lms.y + 0.2309699292 * lms.z;
+    rgb.y = -1.2684380046 * lms.x + 2.6097574011 * lms.y - 0.3413193965 * lms.z;
+    rgb.z = -0.0041960863 * lms.x - 0.7034186147 * lms.y + 1.7076147010 * lms.z;
+    
+    return rgb;
 }
 
-float3 ReinhardExtendedLAB(float3 color, float midGray, float whitePoint)
+float3 ReinhardExtendedOKLab(float3 color, float midGray, float whitePoint)
 {
-    float3 lab = XYZToLAB(RGBToXYZ(color));
+    float3 lab = RGBToOKLab(color);
+    float L = lab.x;
     
-  
-    float L = lab.x / 100.0;
-    
-    // Its the extended Reinhard with mid-gray adaptatio
+    // Extended Reinhard with mid-gray adaptation and -2 cause it just works
     float scaledL = L * exp2(-2);
     float Ld = (scaledL * (1.0 + scaledL/(midGray*midGray))) / (1.0 + scaledL);
     
-    
     Ld *= whitePoint;
-    
     Ld = pow(Ld, Contrast);
-
+    
+  
     float2 ab = lab.yz * Saturation;
     
-    return XYZToRGB(LABToXYZ(float3(Ld * 100.0, ab)));
+    return OKLabToRGB(float3(Ld, ab));
 }
+
 float4 PS_PerceptualReinhard(float4 pos : SV_Position, float2 uv : TEXCOORD) : SV_Target
 {
     float4 color = tex2D(ReShade::BackBuffer, uv);
-    
-   
     color = SRGBToLinear(color);
+    color = ReinhardExtendedOKLab(color, MidGray, WhitePoint);
     
-    // apply extended reinhard in perceptual space
-    color = ReinhardExtendedLAB(color, MidGray, WhitePoint);
-    
-    
+    // Shoulder strength and Reinhard Simple tonemapping for not letting color highlights go out of range look wrong
     color *= ShoulderStrength;
-    color = color / (1.0 + color);
-    
+    color = color / (1 + color);
     
     color = LinearToSRGB(color);
-    
+	
+	// Inverse Simple Reinhard to let color go out of range
+	color = HDR * color / (HDR - color);
     return saturate(color);
 }
 
-
-technique Perceptual_Reinhard_Extended
+technique Perceptual_Reinhard_Extended_OKLab
 {
     pass
     {
