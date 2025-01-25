@@ -1,3 +1,3 @@
 Basic Color/Tonemapper for Reshade
 
-Reinhard + lightness combo for some interesting effect
+Reinhard + lightness OKlab combo for some interesting effect
