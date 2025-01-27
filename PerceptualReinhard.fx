@@ -7,22 +7,22 @@ uniform int ColorSpace <
 > = 0;
 uniform float MidGray <
     ui_type = "slider";
-    ui_min = 0.05;
+    ui_min = 0.14;
     ui_max = 0.18;
     ui_step = 0.01;
-> = 0.10;
+> = 0.18;
 uniform float Contrast <
     ui_type = "slider";
     ui_min = 0.5;
     ui_max = 1.5;
     ui_step = 0.01;
-> = 0.85;
+> = 1.0;
 uniform float ShoulderStrength <
     ui_type = "slider";
     ui_min = 0.5;
-    ui_max = 2.0;
+    ui_max = 4.0;
     ui_step = 0.01;
-> = 2.0;
+> = 4.0;
 uniform float WhitePoint <
     ui_type = "slider";
     ui_min = 0.5;
@@ -52,7 +52,7 @@ uniform float HighlightSaturation <
     ui_min = 0.0;
     ui_max = 2.0;
     ui_step = 0.01;
-> = 0.8;
+> = 1.0;
 uniform float Saturation <
     ui_type = "slider";
     ui_min = 0.5;
