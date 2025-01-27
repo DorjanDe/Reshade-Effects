@@ -1,6 +1,5 @@
 #include "ReShade.fxh"
-// By Liam very basic 
-
+// By Liam Very Basic starting to get medium stuff
 uniform int ColorSpace <
     ui_type = "combo";
     ui_items = "SRGB\0scRGB\0HLG\0PQ\0";
@@ -8,22 +7,16 @@ uniform int ColorSpace <
 > = 0;
 uniform float MidGray <
     ui_type = "slider";
-    ui_min = 0.1;
-    ui_max = 0.5;
+    ui_min = 0.05;
+    ui_max = 0.18;
     ui_step = 0.01;
-> = 0.19;
+> = 0.10;
 uniform float Contrast <
     ui_type = "slider";
     ui_min = 0.5;
     ui_max = 1.5;
     ui_step = 0.01;
 > = 0.85;
-uniform float Saturation <
-    ui_type = "slider";
-    ui_min = 0.5;
-    ui_max = 1.5;
-    ui_step = 0.01;
-> = 1.15;
 uniform float ShoulderStrength <
     ui_type = "slider";
     ui_min = 0.5;
@@ -43,7 +36,38 @@ uniform float HDR <
     ui_max = 4.0;
     ui_step = 0.01;
 > = 4.0;
+uniform int ReinhardMode <
+    ui_type = "combo";
+    ui_items = "Luminance-Based\0Per-Channel\0";
+    ui_label = "Reinhard Mode";
+> = 0;
+uniform float ShadowSaturation <
+    ui_type = "slider";
+    ui_min = 0.0;
+    ui_max = 2.0;
+    ui_step = 0.01;
+> = 1.08;
+uniform float HighlightSaturation <
+    ui_type = "slider";
+    ui_min = 0.0;
+    ui_max = 2.0;
+    ui_step = 0.01;
+> = 0.8;
+uniform float Saturation <
+    ui_type = "slider";
+    ui_min = 0.5;
+    ui_max = 1.5;
+    ui_step = 0.01;
+	ui_label = "Global Saturation";
+> = 1.0;
 
+uniform float HighlightBrightness <
+    ui_type = "slider";
+    ui_min = 0.8;
+    ui_max = 1.2;
+    ui_step = 0.01;
+    ui_label = "Highlight Brightness";
+> = 1.0;
 float3 SRGBToLinear(float3 color)
 {
     return color < 0.04045 ? color / 12.92 : pow((color + 0.055)/1.055, 2.4);
@@ -53,6 +77,7 @@ float3 LinearToSRGB(float3 color)
 {
     return color < 0.0031308 ? 12.92 * color : 1.055 * pow(color, 1.0/2.4) - 0.055;
 }
+
 float3 HLGToLinear(float3 color)
 {
     float3 E;
@@ -70,7 +95,7 @@ float3 LinearToHLG(float3 E)
     V.b = (E.b <= 1.0/12.0) ? sqrt(3.0 * E.b) : 0.17883277 * log(12.0 * E.b - 0.28466892) + 0.55991073;
     return V;
 }
-// PQ (ST.2084) transfer functions
+
 float3 PQToLinear(float3 V)
 {
     const float m1 = 0.1593017578125;
@@ -81,7 +106,7 @@ float3 PQToLinear(float3 V)
     
     V = pow(V, 1.0/m2);
     float3 L = pow(max(V - c1, 0.0) / (c2 - c3 * V), 1.0/m1);
-    return L * 10000.0; // Returns nits (0-10,000)
+    return L * 10000.0;
 }
 
 float3 LinearToPQ(float3 L)
@@ -92,11 +117,12 @@ float3 LinearToPQ(float3 L)
     const float c2 = 18.8515625;
     const float c3 = 18.6875;
     
-    L /= 10000.0; // Normalize from nits this need more work like adaptive based on exposure in future
+    L /= 10000.0;
     L = pow(max(L, 0.0), m1);
     float3 V = pow((c2 * L + c1) / (1.0 + c3 * L), m2);
     return saturate(V);
 }
+
 float3 RGBToOKLab(float3 rgb)
 {
     float3 lms;
@@ -131,48 +157,71 @@ float3 OKLabToRGB(float3 lab)
     return rgb;
 }
 
-float3 ReinhardExtendedOKLab(float3 color, float midGray, float whitePoint)
+float Luminance(float3 rgb)
 {
-    float3 lab = RGBToOKLab(color);
-    float L = lab.x;
+    return dot(rgb, float3(0.2126, 0.7152, 0.0722));
+}
+
+float3 ApplyReinhardToLuminance(float3 color, float midGray, float whitePoint)
+{
+    float Y = Luminance(color);
+    float scaledY = Y * 0.25;
+    float Yd = (scaledY * (1.0 + scaledY/(midGray*midGray))) / (1.0 + scaledY);
+    Yd *= whitePoint;
+    Yd = pow(Yd, Contrast);
+    return color * (Yd / max(Y, 1e-6));
+}
+
+float3 ApplyReinhardPerChannel(float3 color, float midGray, float whitePoint)
+{
+    float3 scaled = color * 0.25;
+    float3 scaledY = 1.0 + scaled;
+    float3 scaledX = scaled * (1.0 + scaled/(midGray*midGray));
+    color = (scaledX / scaledY) * whitePoint;
+    return pow(color, Contrast);
+}
+
+float3 AdaptiveAdjustments(float3 oklab, float3 linearRGB)
+{
+    float luma = Luminance(linearRGB);
+    float t = smoothstep(0.1, 0.9, luma);
     
-    // Extended Reinhard with mid-gray adaptation and fixed scaledL value since exp2(-2) = 0.25
-    float scaledL = L * 0.25;
-    float Ld = (scaledL * (1.0 + scaledL/(midGray*midGray))) / (1.0 + scaledL);
     
-    Ld *= whitePoint;
-    Ld = pow(Ld, Contrast);
+    float satFactor = lerp(ShadowSaturation, HighlightSaturation, t) * Saturation;
     
-    float2 ab = lab.yz * Saturation;
+   
+    float brightness = lerp(1, HighlightBrightness, t);
     
-    return OKLabToRGB(float3(Ld, ab));
+    return float3(oklab.x * brightness, oklab.yz * satFactor);
 }
 
 float4 PS_PerceptualReinhard(float4 pos : SV_Position, float2 uv : TEXCOORD) : SV_Target
 {
     float4 color = tex2D(ReShade::BackBuffer, uv);
     
-    // Color space conversion
     if (ColorSpace == 0)
         color.rgb = SRGBToLinear(color.rgb);
     else if (ColorSpace == 2)
         color.rgb = HLGToLinear(color.rgb);
     else if (ColorSpace == 3)
         color.rgb = PQToLinear(color.rgb);
+
+    if (ReinhardMode == 0)
+        color.rgb = ApplyReinhardToLuminance(color.rgb, MidGray, WhitePoint);
+    else
+        color.rgb = ApplyReinhardPerChannel(color.rgb, MidGray, WhitePoint);
+
+    float3 lab = RGBToOKLab(color.rgb);
+    lab = AdaptiveAdjustments(lab, color.rgb); // Updated function call
+    color.rgb = OKLabToRGB(lab);
     
-    // ReinhardExtendedOKLab processing
-    color.rgb = ReinhardExtendedOKLab(color, MidGray, WhitePoint);  
     color.rgb *= ShoulderStrength;
-	
-	//Simple Reinhard to manage overblown highlights
     color.rgb = color.rgb / (1 + color.rgb);
-    
-    // HDR expansion
-	//PQ inverse of reinhard looks right only at 1 at the moment
+
     float hdrParam = (ColorSpace == 3) ? 1.0 : HDR; 
-    color.rgb = hdrParam * color.rgb / (hdrParam - color.rgb);
+    color.rgb = hdrParam * color.rgb / max((hdrParam - color.rgb), 1e-5);
     
-     if (ColorSpace == 0)
+    if (ColorSpace == 0)
         color.rgb = LinearToSRGB(color.rgb);
     else if (ColorSpace == 2)
         color.rgb = LinearToHLG(color.rgb);
@@ -182,7 +231,7 @@ float4 PS_PerceptualReinhard(float4 pos : SV_Position, float2 uv : TEXCOORD) : S
     return color;
 }
 
-technique Perceptual_Reinhard_Extended_OKLab
+technique Perceptual_Reinhard_OKLab
 {
     pass
     {
