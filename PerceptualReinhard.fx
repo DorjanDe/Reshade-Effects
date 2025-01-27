@@ -1,7 +1,7 @@
 #include "ReShade.fxh"
 // By Liam Very Basic starting to get medium stuff
 //To do
-Add BT2020 to bt709 before okLAB for pq/hdr10
+//Add BT2020 to bt709 before okLAB for pq/hdr10
 uniform int ColorSpace <
     ui_type = "combo";
     ui_items = "SRGB\0scRGB\0HLG\0PQ\0";
