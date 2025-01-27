@@ -1,5 +1,7 @@
 #include "ReShade.fxh"
 // By Liam Very Basic starting to get medium stuff
+//To do
+Add BT2020 to bt709 before okLAB for pq/hdr10
 uniform int ColorSpace <
     ui_type = "combo";
     ui_items = "SRGB\0scRGB\0HLG\0PQ\0";
@@ -212,7 +214,7 @@ float4 PS_PerceptualReinhard(float4 pos : SV_Position, float2 uv : TEXCOORD) : S
         color.rgb = ApplyReinhardPerChannel(color.rgb, MidGray, WhitePoint);
 
     float3 lab = RGBToOKLab(color.rgb);
-    lab = AdaptiveAdjustments(lab, color.rgb); // Updated function call
+    lab = AdaptiveAdjustments(lab, color.rgb); 
     color.rgb = OKLabToRGB(lab);
     
     color.rgb *= ShoulderStrength;
