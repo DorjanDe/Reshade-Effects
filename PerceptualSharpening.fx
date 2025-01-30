@@ -1,4 +1,5 @@
-// Sharpening filter in Oklab color space - Performance Optimized
+// Sharpening filter in Oklab color space 
+//Performance is not optional
 #include "ReShade.fxh"
 
 uniform float SharpnessStrength <
