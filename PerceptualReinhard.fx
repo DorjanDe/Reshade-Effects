@@ -18,13 +18,13 @@ uniform float Contrast <
     ui_min = 0.5;
     ui_max = 1.5;
     ui_step = 0.01;
-> = 1.0;
+> = 0.8;
 uniform float Exp <
     ui_type = "slider";
     ui_min = 0.1;
     ui_max = 1.0;
     ui_step = 0.01;
-> = 0.25;
+> = 0.26;
 
 uniform float HDR <
     ui_label = "Lower value is closer to HDR";
@@ -45,21 +45,21 @@ uniform float HighlightSaturation <
     ui_min = 0.0;
     ui_max = 2.0;
     ui_step = 0.01;
-> = 1.0;
+> = 1.1;
 uniform float Saturation <
     ui_type = "slider";
     ui_min = 0.5;
     ui_max = 1.5;
     ui_step = 0.01;
     ui_label = "Global Saturation";
-> = 1.1;
+> = 1.15;
 uniform float ShadowsBrightness <
     ui_type = "slider";
     ui_min = 0.8;
     ui_max = 1.2;
     ui_step = 0.01;
-    
-> = 1.1;
+    hidden = true;
+> = 1.0;
 uniform float HighlightBrightness <
     ui_type = "slider";
     ui_min = 0.8;
@@ -133,7 +133,7 @@ float3 AdaptiveAdjustments(float3 oklab)
     float chroma = length(oklab.yz);
     if (chroma > 1e-5)
     {
-        // Reinhard-inspired chroma compression to prevent oversaturation
+        // Reinhard based chroma compression to prevent oversaturation
         float compressedChroma = (chroma * satFactor) / (1.0 + chroma);
         oklab.yz *= compressedChroma / chroma;
     }
