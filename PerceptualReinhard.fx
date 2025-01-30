@@ -32,27 +32,37 @@ uniform float HDR <
     ui_min = 1.0;
     ui_max = 4.0;
     ui_step = 0.01;
-> = 4.0;
-
+> = 2.0;
+uniform float Vibrance <
+    ui_type = "slider";
+    ui_label = "Vibrance";
+    ui_min = 0.5;
+    ui_max = 1.5;
+    ui_step = 0.01;
+    ui_tooltip = "Intelligent saturation boost for mid-chroma colors";
+> = 1.3;
 uniform float ShadowSaturation <
     ui_type = "slider";
     ui_min = 0.0;
     ui_max = 2.0;
     ui_step = 0.01;
-> = 1.1;
+	hidden = true;
+> = 1.0;
 uniform float HighlightSaturation <
     ui_type = "slider";
     ui_min = 0.0;
     ui_max = 2.0;
     ui_step = 0.01;
-> = 1.1;
+	hidden = true;
+> = 1.0;
 uniform float Saturation <
     ui_type = "slider";
     ui_min = 0.5;
     ui_max = 1.5;
     ui_step = 0.01;
     ui_label = "Global Saturation";
-> = 1.15;
+	hidden = true;
+> = 1.0;
 uniform float ShadowsBrightness <
     ui_type = "slider";
     ui_min = 0.8;
@@ -124,22 +134,26 @@ float3 ApplyReinhardToOKLab(float3 lab, float midGray)
 
 float3 AdaptiveAdjustments(float3 oklab)
 {
-    // Use OKLab's lightness channel to determine shadow/highlight transition
-    float t = smoothstep(0.2, 0.8, oklab.x); // Narrower transition range
+    // Expanded transition range for better midtone handling
+    float t = smoothstep(0.15, 0.85, oklab.x);
     float satFactor = lerp(ShadowSaturation, HighlightSaturation, t) * Saturation;
     float brightness = lerp(ShadowsBrightness, HighlightBrightness, t);
 
-    // Calculate current chroma and apply non-linear compression
+    // Chroma processing with dual compensation
     float chroma = length(oklab.yz);
     if (chroma > 1e-5)
     {
-        // Reinhard based chroma compression to prevent oversaturation
-        float compressedChroma = (chroma * satFactor) / (1.0 + chroma);
-        oklab.yz *= compressedChroma / chroma;
+        // Vibrance-enhanced compression curve
+        float chromaBias = 1.0 + (Vibrance - 1.0) * (1.0 - smoothstep(0.1, 0.4, chroma));
+        float compressedChroma = (chroma * satFactor * chromaBias) / (0.8 + chroma);
+        
+        // Warmth preservation for neutrals
+        float warmth = 1.0 + 0.1 * (Vibrance - 1.0) * (1.0 - chroma);
+        oklab.yz *= compressedChroma / chroma * float2(warmth, 1.0);
     }
     
-    // Apply brightness to lightness component
-    oklab.x *= brightness;
+    // Lightness-preserving brightness adjustment
+    oklab.x = pow(oklab.x * brightness, 1.0 + 0.2 * (1.0 - Vibrance));
 
     return oklab;
 }
@@ -160,7 +174,7 @@ float4 PS_PerceptualReinhard(float4 pos : SV_Position, float2 uv : TEXCOORD) : S
     lab = AdaptiveAdjustments(lab);
     color.rgb = OKLabToRGB(lab);
 
-    // Post-processing 
+    
     color.rgb /= (1.0 + color.rgb); //Using Simple Reinhard to contains highlights 
     color.rgb = HDR * color.rgb / max(HDR - color.rgb, 1e-5); // Using Inverse Simple Reinhard to controll highlights 
 
