@@ -22,7 +22,7 @@ uniform float Contrast <
 uniform float Exp <
     ui_type = "slider";
     ui_min = 0.1;
-    ui_max = 1.0;
+    ui_max = 0.4;
     ui_step = 0.01;
 > = 0.26;
 
