@@ -1,16 +1,15 @@
 #include "ReShade.fxh"
 // By Liam Very Basic starting to get medium stuff
-//To do
-//Add BT2020 to bt709 before okLAB for pq/hdr10
+
 uniform int ColorSpace <
     ui_type = "combo";
-    ui_items = "SRGB\0scRGB\0HLG\0PQ\0";
+    ui_items = "SRGB\0scRGB\0";
     ui_label = "Color Space";
 > = 0;
 uniform float MidGray <
     ui_type = "slider";
     ui_min = 0.14;
-    ui_max = 0.18;
+    ui_max = 0.28;
     ui_step = 0.01;
 > = 0.18;
 uniform float Contrast <
@@ -19,18 +18,13 @@ uniform float Contrast <
     ui_max = 1.5;
     ui_step = 0.01;
 > = 1.0;
-uniform float ShoulderStrength <
+uniform float Exp <
     ui_type = "slider";
-    ui_min = 0.5;
-    ui_max = 4.0;
+    ui_min = 0.1;
+    ui_max = 1.0;
     ui_step = 0.01;
-> = 4.0;
-uniform float WhitePoint <
-    ui_type = "slider";
-    ui_min = 0.5;
-    ui_max = 1.5;
-    ui_step = 0.01;
-> = 1.0;
+> = 0.30;
+
 uniform float HDR <
     ui_label = "Lower value is closer to HDR";
     ui_type = "slider";
@@ -38,17 +32,13 @@ uniform float HDR <
     ui_max = 4.0;
     ui_step = 0.01;
 > = 4.0;
-uniform int ReinhardMode <
-    ui_type = "combo";
-    ui_items = "Luminance-Based\0Per-Channel\0";
-    ui_label = "Reinhard Mode";
-> = 0;
+
 uniform float ShadowSaturation <
     ui_type = "slider";
     ui_min = 0.0;
     ui_max = 2.0;
     ui_step = 0.01;
-> = 1.08;
+> = 1.1;
 uniform float HighlightSaturation <
     ui_type = "slider";
     ui_min = 0.0;
@@ -60,9 +50,15 @@ uniform float Saturation <
     ui_min = 0.5;
     ui_max = 1.5;
     ui_step = 0.01;
-	ui_label = "Global Saturation";
-> = 1.0;
-
+    ui_label = "Global Saturation";
+> = 1.1;
+uniform float ShadowsBrightness <
+    ui_type = "slider";
+    ui_min = 0.5;
+    ui_max = 1.5;
+    ui_step = 0.01;
+    
+> = 1.1;
 uniform float HighlightBrightness <
     ui_type = "slider";
     ui_min = 0.8;
@@ -78,51 +74,6 @@ float3 SRGBToLinear(float3 color)
 float3 LinearToSRGB(float3 color)
 {
     return color < 0.0031308 ? 12.92 * color : 1.055 * pow(color, 1.0/2.4) - 0.055;
-}
-
-float3 HLGToLinear(float3 color)
-{
-    float3 E;
-    E.r = (color.r <= 0.5) ? (color.r * color.r) / 3.0 : (exp((color.r - 0.55991073) / 0.17883277) + 0.28466892) / 12.0;
-    E.g = (color.g <= 0.5) ? (color.g * color.g) / 3.0 : (exp((color.g - 0.55991073) / 0.17883277) + 0.28466892) / 12.0;
-    E.b = (color.b <= 0.5) ? (color.b * color.b) / 3.0 : (exp((color.b - 0.55991073) / 0.17883277) + 0.28466892) / 12.0;
-    return E;
-}
-
-float3 LinearToHLG(float3 E)
-{
-    float3 V;
-    V.r = (E.r <= 1.0/12.0) ? sqrt(3.0 * E.r) : 0.17883277 * log(12.0 * E.r - 0.28466892) + 0.55991073;
-    V.g = (E.g <= 1.0/12.0) ? sqrt(3.0 * E.g) : 0.17883277 * log(12.0 * E.g - 0.28466892) + 0.55991073;
-    V.b = (E.b <= 1.0/12.0) ? sqrt(3.0 * E.b) : 0.17883277 * log(12.0 * E.b - 0.28466892) + 0.55991073;
-    return V;
-}
-
-float3 PQToLinear(float3 V)
-{
-    const float m1 = 0.1593017578125;
-    const float m2 = 78.84375;
-    const float c1 = 0.8359375;
-    const float c2 = 18.8515625;
-    const float c3 = 18.6875;
-    
-    V = pow(V, 1.0/m2);
-    float3 L = pow(max(V - c1, 0.0) / (c2 - c3 * V), 1.0/m1);
-    return L * 10000.0;
-}
-
-float3 LinearToPQ(float3 L)
-{
-    const float m1 = 0.1593017578125;
-    const float m2 = 78.84375;
-    const float c1 = 0.8359375;
-    const float c2 = 18.8515625;
-    const float c3 = 18.6875;
-    
-    L /= 10000.0;
-    L = pow(max(L, 0.0), m1);
-    float3 V = pow((c2 * L + c1) / (1.0 + c3 * L), m2);
-    return saturate(V);
 }
 
 float3 RGBToOKLab(float3 rgb)
@@ -159,76 +110,62 @@ float3 OKLabToRGB(float3 lab)
     return rgb;
 }
 
-float Luminance(float3 rgb)
+float3 ApplyReinhardToOKLab(float3 lab, float midGray)
 {
-    return dot(rgb, float3(0.2126, 0.7152, 0.0722));
-}
-
-float3 ApplyReinhardToLuminance(float3 color, float midGray, float whitePoint)
-{
-    float Y = Luminance(color);
-    float scaledY = Y * 0.25;
+    float Y = lab.x;
+    float scaledY = Y * Exp;
     float Yd = (scaledY * (1.0 + scaledY/(midGray*midGray))) / (1.0 + scaledY);
-    Yd *= whitePoint;
+    
     Yd = pow(Yd, Contrast);
-    return color * (Yd / max(Y, 1e-6));
+    lab.x = Yd;
+    return lab;
 }
 
-float3 ApplyReinhardPerChannel(float3 color, float midGray, float whitePoint)
+float3 AdaptiveAdjustments(float3 oklab)
 {
-    float3 scaled = color * 0.25;
-    float3 scaledY = 1.0 + scaled;
-    float3 scaledX = scaled * (1.0 + scaled/(midGray*midGray));
-    color = (scaledX / scaledY) * whitePoint;
-    return pow(color, Contrast);
-}
-
-float3 AdaptiveAdjustments(float3 oklab, float3 linearRGB)
-{
-    float luma = Luminance(linearRGB);
-    float t = smoothstep(0.1, 0.9, luma);
-    
-    
+    // Use OKLab's lightness channel to determine shadow/highlight transition
+    float t = smoothstep(0.2, 0.8, oklab.x); // Narrower transition range
     float satFactor = lerp(ShadowSaturation, HighlightSaturation, t) * Saturation;
+    float brightness = lerp(ShadowsBrightness, HighlightBrightness, t);
+
+    // Calculate current chroma and apply non-linear compression
+    float chroma = length(oklab.yz);
+    if (chroma > 1e-5)
+    {
+        // World First xD Reinhard based chroma compression to prevent oversaturation
+        float compressedChroma = (chroma * satFactor) / (1.0 + chroma);
+        oklab.yz *= compressedChroma / chroma;
+    }
     
-   
-    float brightness = lerp(1, HighlightBrightness, t);
-    
-    return float3(oklab.x * brightness, oklab.yz * satFactor);
+    // Apply brightness to lightness component
+    oklab.x *= brightness;
+
+    return oklab;
 }
 
 float4 PS_PerceptualReinhard(float4 pos : SV_Position, float2 uv : TEXCOORD) : SV_Target
 {
     float4 color = tex2D(ReShade::BackBuffer, uv);
     
+    // Convert to linear RGB
     if (ColorSpace == 0)
         color.rgb = SRGBToLinear(color.rgb);
-    else if (ColorSpace == 2)
-        color.rgb = HLGToLinear(color.rgb);
-    else if (ColorSpace == 3)
-        color.rgb = PQToLinear(color.rgb);
 
-    if (ReinhardMode == 0)
-        color.rgb = ApplyReinhardToLuminance(color.rgb, MidGray, WhitePoint);
-    else
-        color.rgb = ApplyReinhardPerChannel(color.rgb, MidGray, WhitePoint);
-
+    // Convert to OKLab and apply Reinhard
     float3 lab = RGBToOKLab(color.rgb);
-    lab = AdaptiveAdjustments(lab, color.rgb); 
+    lab = ApplyReinhardToOKLab(lab, MidGray);
+    
+    // Adjust saturation and brightness in OKLab using lightness channel
+    lab = AdaptiveAdjustments(lab);
     color.rgb = OKLabToRGB(lab);
-    
-    color.rgb *= ShoulderStrength;
-    color.rgb = color.rgb / (1 + color.rgb);
 
-    float hdrParam = (ColorSpace == 3) ? 1.0 : HDR; 
-    color.rgb = hdrParam * color.rgb / max((hdrParam - color.rgb), 1e-5);
-    
+    // Post-processing 
+    color.rgb /= (1.0 + color.rgb); //Using Simple Reinhard to contains highlights 
+    color.rgb = HDR * color.rgb / max(HDR - color.rgb, 1e-5); // Using Inverse Simple Reinhard to controll highlights 
+
+    // Convert back to original color space
     if (ColorSpace == 0)
         color.rgb = LinearToSRGB(color.rgb);
-    else if (ColorSpace == 2)
-        color.rgb = LinearToHLG(color.rgb);
-    else if (ColorSpace == 3)
-        color.rgb = LinearToPQ(color.rgb);
     
     return color;
 }
