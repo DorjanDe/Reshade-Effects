@@ -55,7 +55,7 @@ uniform float HighlightSaturation <
     ui_step = 0.01;
 	ui_tooltip = "Saturation boost only for highlight,ignores dark colors";
 	
-> = 1.0;
+> = 1.15;
 uniform float HighlightExposure <
    ui_label = "Highlight Exposure";
    ui_type = "slider";
