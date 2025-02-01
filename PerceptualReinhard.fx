@@ -63,7 +63,7 @@ uniform float HighlightExposure <
     ui_max = 1.9;
    ui_step = 0.01;
    ui_tooltip = "Intensity boost for highlights like flames";
-> = 1.0;
+> = 1.2;
 float3 SRGBToLinear(float3 color)
 {
     return color < 0.04045 ? color / 12.92 : pow((color + 0.055)/1.055, 2.4);
@@ -169,7 +169,7 @@ float3 OKLabToRGB(float3 lab)
         
         
         if (ColorSpace == 0)
-            color.rgb = LinearToSRGB(saturate(color.rgb));
+            color.rgb = LinearToSRGB(color.rgb);
             
         return color;
     }
