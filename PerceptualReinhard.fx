@@ -3,7 +3,7 @@
 
 uniform int ColorSpace <
     ui_type = "combo";
-    ui_items = "SRGB\0scRGB\0";
+    ui_items = "SRGB_SDR\0scRGB_HDR\0";
     ui_label = "Color Space";
 > = 0;
 uniform float MidGray <
@@ -21,26 +21,26 @@ uniform float Contrast <
 > = 0.8;
 uniform float Exp <
     ui_type = "slider";
-    ui_min = 0.1;
-    ui_max = 0.4;
+    ui_min = 0.2;
+    ui_max = 0.32;
     ui_step = 0.01;
 > = 0.26;
 
 uniform float HDR <
-    ui_label = "Lower value is closer to HDR";
+    ui_label = "Lower is closer to HDR useful for both hdr/sdr";
     ui_type = "slider";
     ui_min = 1.0;
     ui_max = 4.0;
     ui_step = 0.01;
-> = 2.0;
+> = 3.5;
 uniform float Vibrance <
     ui_type = "slider";
     ui_label = "Vibrance";
     ui_min = 0.5;
     ui_max = 1.5;
     ui_step = 0.01;
-    ui_tooltip = "Intelligent saturation boost for mid-chroma colors";
-> = 1.3;
+    ui_tooltip = "Saturation boost for entire screen";
+> = 1.0;
 uniform float ShadowSaturation <
     ui_type = "slider";
     ui_min = 0.0;
@@ -50,32 +50,19 @@ uniform float ShadowSaturation <
 > = 1.0;
 uniform float HighlightSaturation <
     ui_type = "slider";
-    ui_min = 0.0;
-    ui_max = 2.0;
-    ui_step = 0.01;
-	hidden = true;
-> = 1.0;
-uniform float Saturation <
-    ui_type = "slider";
     ui_min = 0.5;
     ui_max = 1.5;
     ui_step = 0.01;
-    ui_label = "Global Saturation";
-	hidden = true;
+	ui_tooltip = "Saturation boost only for highlight,ignores dark colors";
+	
 > = 1.0;
-uniform float ShadowsBrightness <
-    ui_type = "slider";
-    ui_min = 0.8;
-    ui_max = 1.2;
-    ui_step = 0.01;
-    hidden = true;
-> = 1.0;
-uniform float HighlightBrightness <
-    ui_type = "slider";
-    ui_min = 0.8;
-    ui_max = 1.2;
-    ui_step = 0.01;
-    ui_label = "Highlight Brightness";
+uniform float HighlightExposure <
+   ui_label = "Highlight Exposure";
+   ui_type = "slider";
+    ui_min = 0.9;
+    ui_max = 1.9;
+   ui_step = 0.01;
+   ui_tooltip = "Intensity boost for highlights like flames";
 > = 1.0;
 float3 SRGBToLinear(float3 color)
 {
@@ -121,69 +108,72 @@ float3 OKLabToRGB(float3 lab)
     return rgb;
 }
 
-float3 ApplyReinhardToOKLab(float3 lab, float midGray)
-{
-    float Y = lab.x;
-    float scaledY = Y * Exp;
-    float Yd = (scaledY * (1.0 + scaledY/(midGray*midGray))) / (1.0 + scaledY);
-    
-    Yd = pow(Yd, Contrast);
-    lab.x = Yd;
-    return lab;
-}
-
-float3 AdaptiveAdjustments(float3 oklab)
-{
-    // Expanded transition range for better midtone handling
-    float t = smoothstep(0.15, 0.85, oklab.x);
-    float satFactor = lerp(ShadowSaturation, HighlightSaturation, t) * Saturation;
-    float brightness = lerp(ShadowsBrightness, HighlightBrightness, t);
-
-    // Chroma processing with dual compensation
-    float chroma = length(oklab.yz);
-    if (chroma > 1e-5)
+    float3 ApplyReinhardToOKLab(float3 lab, float midGray)
     {
-        // Vibrance-enhanced compression curve
-        float chromaBias = 1.0 + (Vibrance - 1.0) * (1.0 - smoothstep(0.1, 0.4, chroma));
-        float compressedChroma = (chroma * satFactor * chromaBias) / (0.8 + chroma);
+        const float epsilon = 1e-6;
+        float Y = lab.x;
+        float scaledY = Y * Exp;
+        float Yd = (scaledY * (1.0 + scaledY/(midGray*midGray + epsilon))) / 
+                  (1.0 + scaledY + epsilon);
         
-        // Warmth preservation for neutrals
-        float warmth = 1.0 + 0.1 * (Vibrance - 1.0) * (1.0 - chroma);
-        oklab.yz *= compressedChroma / chroma * float2(warmth, 1.0);
+        Yd = pow(Yd, Contrast);
+        lab.x = Yd;
+        return lab;
     }
-    
-    // Lightness-preserving brightness adjustment
-    oklab.x = pow(oklab.x * brightness, 1.0 + 0.2 * (1.0 - Vibrance));
 
-    return oklab;
-}
+    float3 AdaptiveAdjustments(float3 oklab)
+    {
+        
+        const float shadowRange = 0.15;
+        const float highlightRange = 0.85;
+        float t = smoothstep(shadowRange, highlightRange, oklab.x);
+        
+        // Chroma-aware adjustments
+        float chroma = length(oklab.yz);
+        float chromaBias = 1.0 + (Vibrance - 1.0) * (1.0 - smoothstep(0.1, 0.4, chroma));
+        float compressedChroma = (chroma * chromaBias) / (0.8 + chroma + 1e-6);
+        
+        // Apply saturation adjustments
+        float satFactor = lerp(ShadowSaturation, HighlightSaturation, t);
+		const float blackProtection = 0.08; // Adjust this to control darkness threshold
+        float darkness = smoothstep(0.0, blackProtection, oklab.x);
+        satFactor = lerp(1.0, satFactor, darkness);
+        oklab.yz *= compressedChroma * satFactor / max(chroma, 1e-6);
 
-float4 PS_PerceptualReinhard(float4 pos : SV_Position, float2 uv : TEXCOORD) : SV_Target
-{
-    float4 color = tex2D(ReShade::BackBuffer, uv);
-    
-    // Convert to linear RGB
-    if (ColorSpace == 0)
-        color.rgb = SRGBToLinear(color.rgb);
+        // Luminance preservation for highlight exposure
+        const float threshold = 0.7; // Start affecting highlights above 70% luminance
+        const float softRange = 0.2; // Smooth transition range
+        float t_exposure = smoothstep(threshold - softRange, threshold + softRange, oklab.x);
+        float exposureBoost = 1.0 + (pow(HighlightExposure, 0.5) - 1.0) * t_exposure * (1.0 - t_exposure * 0.5);
+        oklab.x *= exposureBoost;
+        return oklab;
+    }
 
-    // Convert to OKLab and apply Reinhard
-    float3 lab = RGBToOKLab(color.rgb);
-    lab = ApplyReinhardToOKLab(lab, MidGray);
-    
-    // Adjust saturation and brightness in OKLab using lightness channel
-    lab = AdaptiveAdjustments(lab);
-    color.rgb = OKLabToRGB(lab);
+    float4 PS_PerceptualReinhard(float4 pos : SV_Position, float2 uv : TEXCOORD) : SV_Target
+    {
+        float4 color = tex2D(ReShade::BackBuffer, uv);
+        
+        
+        if (ColorSpace == 0)
+            color.rgb = SRGBToLinear(color.rgb);
+        
+        // Core tonemapping in perceptual space
+        float3 lab = RGBToOKLab(color.rgb);
+        lab = ApplyReinhardToOKLab(lab, MidGray);
+        lab = AdaptiveAdjustments(lab);
+        
+        // Convert back to RGB and apply highlight compression(SimpleReinhard) and highlight control compression(InverseReinhard)
+        color.rgb = OKLabToRGB(lab);
+		color.rgb = color.rgb / (color.rgb + 1);
+        color.rgb = HDR * color.rgb / max((HDR - color.rgb), 1e-5);
+        
+        
+        if (ColorSpace == 0)
+            color.rgb = LinearToSRGB(saturate(color.rgb));
+            
+        return color;
+    }
 
-    
-    color.rgb /= (1.0 + color.rgb); //Using Simple Reinhard to contains highlights 
-    color.rgb = HDR * color.rgb / max(HDR - color.rgb, 1e-5); // Using Inverse Simple Reinhard to controll highlights 
-
-    // Convert back to original color space
-    if (ColorSpace == 0)
-        color.rgb = LinearToSRGB(color.rgb);
-    
-    return color;
-}
 
 technique Perceptual_Reinhard_OKLab
 {
